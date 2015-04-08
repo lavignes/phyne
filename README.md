@@ -241,3 +241,56 @@ except LexerErrorWithLineNo as e:
     print 'Error On Line:{}: {}'.format(e.line_no, e.message)
     exit(1)
 ```
+
+This will tokenize strings of basic just fine. But lets add the ability
+to analyze real files. The lexer class already supports being constructed with
+a file.
+
+```python
+from phyne import Lexer, token, LexerError
+
+class LexerErrorWithLineNo(LexerError):
+    # Errors now contain the filename
+    def __init__(self, message, filename, line_no):
+        super(LexerErrorWithLineNo, self).__init__(message)
+        self.filename = filename
+        self.line_no = line_no
+
+class BasicLexer(Lexer):
+    def __init__(self, input_data, *args, **kwargs):
+        super(BasicLexer, self).__init__(input_data, *args, **kwargs)
+        self.line_no = kwargs.get('line_no', 1)
+        self.filename = input_data.name # Save filename!
+
+    def error_with_message(self, message):
+        return LexerErrorWithLineNo(message, self.filename, self.line_no)
+
+    def error_for_input(self, bad_input):
+        message = 'Unexpected input: \'{}\''.format(bad_input)
+        return self.error_with_message(message)
+
+    # Same tokens as before ....
+
+# Create a file for us to parse
+with open('code.bas', 'w') as codefile:
+    codefile.write('''
+        // Greatest Common Divisor
+        x := 8;
+        y := 12;
+        WHILE x != y DO
+          IF x > y THEN x := x-y
+            ELSE y := y-x
+          FI
+        OD;
+        PRINT
+        ''')
+
+try:
+    # Pass a file to the lexer instead
+    for token in BasicLexer(open('code.bas', 'r')):
+        print token
+
+except LexerErrorWithLineNo as e:
+    # Print more useful error!
+    print '{}:{}: {}'.format(e.filename, e.line_no, e.message)
+    exit(1)

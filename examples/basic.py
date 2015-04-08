@@ -1,29 +1,20 @@
 from phyne import Lexer, token, LexerError
-
-code = '''\
-// Greatest Common Divisor
-x := 8;
-y := 12;
-WHILE x != y DO
-  IF x > y THEN x := x-y
-    ELSE y := y-x
-  FI
-OD;
-PRINT x
-'''
+import re, os
 
 class LexerErrorWithLineNo(LexerError):
-    def __init__(self, message, line_no):
+    def __init__(self, message, filename, line_no):
         super(LexerErrorWithLineNo, self).__init__(message)
+        self.filename = filename
         self.line_no = line_no
 
 class BasicLexer(Lexer):
     def __init__(self, input_data, *args, **kwargs):
         super(BasicLexer, self).__init__(input_data, *args, **kwargs)
         self.line_no = kwargs.get('line_no', 1)
+        self.filename = input_data.name
 
     def error_with_message(self, message):
-        return LexerErrorWithLineNo(message, self.line_no)
+        return LexerErrorWithLineNo(message, self.filename, self.line_no)
 
     def error_for_input(self, bad_input):
         message = 'Unexpected input: \'{}\''.format(bad_input)
@@ -40,6 +31,18 @@ class BasicLexer(Lexer):
     @token(r'\s')
     def other_whitespace(text):
         pass
+
+    @token(r'INCLUDE\s*".*"')
+    def include(self, text):
+        flags = re.UNICODE | re.MULTILINE
+        filename = re.match(r'INCLUDE\s*"(.*)"', text, flags).group(1)
+        current_path, current_file = os.path.split(self.filename)
+        relative_path = os.path.normpath(os.path.join(current_path, filename))
+        real_path = os.path.realpath(relative_path)
+        try:
+            return BasicLexer(open(relative_path))
+        except IOError as e:
+            raise self.error_with_message(str(e))
 
     @token(r'=')
     def eq(text):
@@ -137,11 +140,30 @@ class BasicLexer(Lexer):
     def name(text):
         return text
 
+with open('code.bas', 'w') as codefile:
+    codefile.write('''
+        // Greatest Common Divisor
+        INCLUDE "thing.bas"
+        x := 8;
+        y := 12;
+        WHILE x != y DO
+          IF x > y THEN x := x-y
+            ELSE y := y-x
+          FI
+        OD;
+        PRINT
+        ''')
+
+with open('thing.bas', 'w') as thingfile:
+    thingfile.write('''
+        // thingfile
+        z := 42;
+        ''')
 
 try:
-    for token in BasicLexer(code):
+    for token in BasicLexer(open('code.bas', 'r')):
         print token
 
 except LexerErrorWithLineNo as e:
-    print 'Error On Line:{}: {}'.format(e.line_no, e.message)
+    print '{}:{}: {}'.format(e.filename, e.line_no, e.message)
     exit(1)
