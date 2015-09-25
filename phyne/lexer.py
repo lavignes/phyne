@@ -1,7 +1,7 @@
 import re, io, unittest
 from collections import OrderedDict, namedtuple
 
-Token = namedtuple('Token', ['name', 'value'])
+Token = namedtuple('Token', 'name value')
 
 def token(regex, *args, custom_name=None, **kwargs):
     if regex is None:
@@ -36,6 +36,9 @@ class _OrderedClass(type):
         result.members = tuple(namespace)
         return result
 
+SubLexer = namedtuple('SubLexer', 'lexer input_data error_class offset')
+SubLexer.__new__.__defaults__ = (None, LexerError, None)
+
 class Lexer(metaclass=_OrderedClass):
     __regex = None
 
@@ -54,7 +57,7 @@ class Lexer(metaclass=_OrderedClass):
 
         return obj
 
-    def __init__(self, input_data, *args, error_class=LexerError, **kwargs):
+    def __init__(self, input_data, *args, error_class=LexerError, offset=None, **kwargs):
         if input_data is None:
             raise ValueError('input_data cannot be None')
         if not issubclass(error_class, LexerError):
@@ -62,19 +65,15 @@ class Lexer(metaclass=_OrderedClass):
 
         self._parent_lexer = None
         self._child_lexer = None
-        self._offset = 0
+        self._offset = offset or 0
         self._error_class = error_class
 
-        # If input_data is a lexer, we continue lexing where it left off
-        if isinstance(input_data, Lexer):
-            self._text = input_data._text
-            self._offset = input_data._offset
-        elif isinstance(input_data, io.IOBase):
+        if isinstance(input_data, io.IOBase):
             self._text = input_data.read()
         elif isinstance(input_data, str):
             self._text = input_data
         else:
-            raise ValueError('input_data must be a Lexer, file, or string')
+            raise ValueError('input_data must be a file or string')
 
     @property
     def offset(self):
@@ -87,6 +86,10 @@ class Lexer(metaclass=_OrderedClass):
     @property
     def error_class(self):
         return self._error_class
+
+    @property
+    def current_char(self):
+        return self._text[self._offset]
 
     def __iter__(self):
         return self
@@ -128,9 +131,12 @@ class Lexer(metaclass=_OrderedClass):
             if value is None:
                 continue
 
-            # If value is a Lexer class, we will instanciate it
-            if isinstance(value, type) and issubclass(value, Lexer):
-                lexer = value(self, error_class=self._error_class)
+            # If value is a SubLexer, we will instanciate the lexer
+            if isinstance(value, SubLexer):
+                input_data = value.input_data or self._text
+                offset = value.offset or self._offset
+                lexer = value.lexer(input_data, error_class=value.error_class,
+                                                     offset=offset)
                 self._child_lexer = lexer
                 lexer._parent_lexer = self
                 continue
@@ -162,7 +168,8 @@ class TestLexer(unittest.TestCase):
         class StartLexer(Lexer):
             @token(start_regex)
             def start(self, text):
-                return InnerLexer
+                return SubLexer(InnerLexer)
+
         return StartLexer
 
     def test_token_exceptions(self):
